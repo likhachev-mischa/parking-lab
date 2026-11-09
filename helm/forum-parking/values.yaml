@@ -1,0 +1,20 @@
+image:
+  repository: forum-parking
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+existingSecret: forum-parking-runtime
+adminEmail: admin@forum.test
+rateRub: 100
+secureCookie: false
+
+persistence:
+  size: 1Gi
+  storageClass: ""
+  existingClaim: ""
+
+backup:
+  enabled: true
+  schedule: "0 3 * * 1"
+  timeZone: Europe/Moscow

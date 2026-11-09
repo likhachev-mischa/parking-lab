@@ -1,0 +1,69 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "external_pull_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop")'
+
+stages: [verify, package, deploy]
+
+verify_app:
+  stage: verify
+  image: node:22-bookworm-slim
+  script:
+    - npm ci --no-audit --no-fund
+    - npm test
+    - npm run build
+    - npm audit --audit-level=high
+
+verify_chart:
+  stage: verify
+  image:
+    name: alpine/helm:4.3.1
+    entrypoint: [""]
+  script:
+    - helm lint --strict helm/forum-parking
+    - helm template forum-check helm/forum-parking > /dev/null
+
+.review_only:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID'
+    - if: '$CI_PIPELINE_SOURCE == "external_pull_request_event" && $CI_EXTERNAL_PULL_REQUEST_SOURCE_REPOSITORY == $CI_EXTERNAL_PULL_REQUEST_TARGET_REPOSITORY'
+
+package_image:
+  extends: .review_only
+  stage: package
+  image:
+    name: moby/buildkit:rootless
+    entrypoint: [""]
+  variables:
+    BUILDKITD_FLAGS: --oci-worker-no-process-sandbox
+  script:
+    - mkdir -p ~/.docker
+    - |
+      auth=$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')
+      printf '{"auths":{"%s":{"auth":"%s"}}}\n' "$CI_REGISTRY" "$auth" > ~/.docker/config.json
+    - |
+      buildctl-daemonless.sh build --frontend dockerfile.v0 --local context=. --local dockerfile=. \
+        --output "type=image,name=$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA,push=true"
+
+deploy_review:
+  extends: .review_only
+  stage: deploy
+  image:
+    name: alpine/helm:4.3.1
+    entrypoint: [""]
+  resource_group: forum-review
+  script:
+    - |
+      if [ "$CI_PIPELINE_SOURCE" = "external_pull_request_event" ]; then
+        release="forum-pr-$CI_EXTERNAL_PULL_REQUEST_IID"
+      else
+        release="forum-mr-$CI_MERGE_REQUEST_IID"
+      fi
+      : "${KUBE_CONTEXT:?Configure the GitLab Agent context}"
+      : "${KUBE_NAMESPACE:?Configure the review namespace}"
+      helm upgrade --install "$release" helm/forum-parking \
+        --kube-context "$KUBE_CONTEXT" --namespace "$KUBE_NAMESPACE" --wait --rollback-on-failure --timeout 5m \
+        --set-string "image.repository=$CI_REGISTRY_IMAGE" --set-string "image.tag=$CI_COMMIT_SHA" \
+        --set-string "imagePullSecrets[0].name=forum-parking-registry"
+      helm test "$release" --kube-context "$KUBE_CONTEXT" --namespace "$KUBE_NAMESPACE" --timeout 2m
