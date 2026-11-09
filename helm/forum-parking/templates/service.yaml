@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "forum.name" . }}
+  labels:
+    {{- include "forum.selector" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "forum.selector" . | nindent 4 }}
+  ports:
+    - port: 3000
+      targetPort: http
+      name: http

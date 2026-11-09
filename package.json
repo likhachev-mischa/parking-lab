@@ -1,0 +1,22 @@
+{
+  "name": "forum-parking",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node --env-file-if-exists=.env server/main.mjs",
+    "backup": "node --env-file-if-exists=.env server/backup.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
